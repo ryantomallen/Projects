@@ -73,7 +73,7 @@ class MappingApp(App):
         return layout
 
     def upload_file(self, instance):
-        """Handle file upload and extract CSV headers."""
+    
         selected_file = self.file_chooser.selection
 
         if selected_file:
@@ -82,14 +82,15 @@ class MappingApp(App):
                     reader = csv.reader(file)
                     self.csv_headers = next(reader)  # Extract headers
                     self.root.clear_widgets()
-                    self.root.add_widget(self.mapping_screen())
+                    self.root.add_widget(self.mapping_screen())  # Pass headers to the mapping screen
             except Exception as e:
                 self.show_popup("Error", f"Failed to read file: {e}")
         else:
             self.show_popup("Error", "No file selected!")
 
+
     def mapping_screen(self):
-        """Mapping screen layout."""
+    
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
 
         scrollview = ScrollView()
@@ -100,9 +101,10 @@ class MappingApp(App):
             row = BoxLayout(size_hint_y=None, height=40, padding=5)
             row.add_widget(Label(text=f"CSV Header: {header}", size_hint_x=0.6))
 
+            # Replace the spinner's static values with API field mappings or placeholders
             dropdown = Spinner(
                 text="Map to API Field",
-                values=["Field1", "Field2", "Field3", "Skip"],
+                values=["Unmapped", "Field1", "Field2", "Field3", "Skip"],  # Replace with dynamic options if available
                 size_hint_x=0.4
             )
             self.mappings[header] = dropdown

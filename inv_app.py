@@ -9,10 +9,28 @@ from kivy.uix.spinner import Spinner
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.popup import Popup
 from kivy.uix.checkbox import CheckBox
+from kivy.graphics import Color, Rectangle
 import csv
 import requests
 
 class MappingApp(App):
+    def customize_checkbox(self, checkbox):
+        """Apply custom styling to a CheckBox."""
+        # Define the background appearance
+        with checkbox.canvas.before:
+            Color(0.8, 0.8, 0.8, 1)  # Light gray for unchecked state
+            Rectangle(size=checkbox.size, pos=checkbox.pos)
+
+        # Ensure the background updates dynamically when the widget resizes or moves
+        checkbox.bind(size=self.update_checkbox_background, pos=self.update_checkbox_background)
+
+    def update_checkbox_background(self, checkbox, *args):
+        """Update the background rectangle when the CheckBox is resized or moved."""
+        checkbox.canvas.before.clear()
+        with checkbox.canvas.before:
+            Color(0.8, 0.8, 0.8, 1)  # Light gray for unchecked state
+            Rectangle(size=checkbox.size, pos=checkbox.pos)
+
     def build(self):
         self.api_url = None
         self.mappings = {}
@@ -136,9 +154,11 @@ class MappingApp(App):
             row = BoxLayout(size_hint_y=None, height=100, padding=20)
 
             # Add checkbox for each field
-            checkbox = CheckBox(size_hint_x=0.1)
+            checkbox = CheckBox(size_hint_x=0.4)
+            self.customize_checkbox(checkbox)  # Apply custom styling
             self.field_map_checkboxes[header] = checkbox
             row.add_widget(checkbox)
+
 
             # Display the CSV header name
             row.add_widget(Label(text=f"CSV Header: {header}", size_hint_x=0.4, font_size=28))

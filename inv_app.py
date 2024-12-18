@@ -105,7 +105,7 @@ class MappingApp(App):
                     reader = csv.reader(file, delimiter=delimiter)
                     self.csv_headers = next(reader)  # Extract headers (first row)
                     
-                    self.root.clear_widgets()
+                    self.root.clear_widgets() 
                     self.root.add_widget(self.mapping_screen())  # Now dynamically create the spinners based on headers
             except Exception as e:
                 self.show_popup("Error", f"Failed to read file: \n{e}")
@@ -222,6 +222,3 @@ class MappingApp(App):
 
 if __name__ == "__main__":
     MappingApp().run()
-
-
-

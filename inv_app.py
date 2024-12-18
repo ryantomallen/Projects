@@ -8,6 +8,7 @@ from kivy.uix.textinput import TextInput
 from kivy.uix.spinner import Spinner
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.popup import Popup
+from kivy.uix.checkbox import CheckBox
 import csv
 import requests
 
@@ -88,15 +89,22 @@ class MappingApp(App):
  
  
     def upload_file(self, instance):
-        """Handle file upload and extract CSV headers."""
+       
         selected_file = self.file_chooser.selection
- 
- 
+
         if selected_file:
             try:
                 with open(selected_file[0], "r") as file:
-                    reader = csv.reader(file)
+                    # Use csv.Sniffer to detect the delimiter
+                    sample = file.read(1024)
+                    file.seek(0)  # Reset file pointer to the beginning
+                    sniffer = csv.Sniffer()
+                    delimiter = sniffer.sniff(sample).delimiter
+
+                    # Use the detected delimiter to read the CSV
+                    reader = csv.reader(file, delimiter=delimiter)
                     self.csv_headers = next(reader)  # Extract headers (first row)
+                    
                     self.root.clear_widgets()
                     self.root.add_widget(self.mapping_screen())  # Now dynamically create the spinners based on headers
             except Exception as e:
@@ -106,47 +114,61 @@ class MappingApp(App):
  
  
     def mapping_screen(self):
-        """Mapping screen layout."""
+        """Mapping screen with checkboxes and generic field names."""
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
- 
- 
+
         scrollview = ScrollView()
         mapping_layout = BoxLayout(orientation='vertical', size_hint_y=None)
         mapping_layout.bind(minimum_height=mapping_layout.setter('height'))
- 
- 
-        # Loop through CSV headers and dynamically create a spinner for each header
+
+        # Create a list of generic field names
+        field_options = [f"Field {i+1}" for i in range(len(self.csv_headers))]
+        field_options.append("Skip")  # Allow skipping fields
+
+        # Loop through CSV headers and dynamically create UI elements
+        self.field_map_checkboxes = {}  # Store checkboxes for each header
+        self.field_map_dropdowns = {}  # Store dropdowns for each header
+
         for header in self.csv_headers:
             row = BoxLayout(size_hint_y=None, height=40, padding=5)
-            row.add_widget(Label(text=f"CSV Header: {header}", size_hint_x=0.6))
- 
- 
-            # Dynamically create spinner options based on the number of headers
-            spinner_values = [f"Field {i+1}" for i in range(len(self.csv_headers))]  # Create a list of options like ["Field 1", "Field 2", ...]
-            spinner_values.append("Skip")  # Add an option to skip the field
- 
- 
+            
+            # Add checkbox for each field
+            checkbox = CheckBox(size_hint_x=0.1)
+            self.field_map_checkboxes[header] = checkbox
+            row.add_widget(checkbox)
+
+            # Display the CSV header name
+            row.add_widget(Label(text=f"CSV Header: {header}", size_hint_x=0.4))
+
+            # Add dropdown (initially disabled)
             dropdown = Spinner(
-                text="Map to API Field",
-                values=spinner_values,  # Use the dynamically generated values
-                size_hint_x=0.4
+                text="Select Field",
+                values=field_options,
+                size_hint_x=0.5,
+                disabled=True  # Initially disabled
             )
-            self.mappings[header] = dropdown  # Store the spinner mapping with the header as key
+            self.field_map_dropdowns[header] = dropdown
             row.add_widget(dropdown)
+
+            # Bind checkbox to enable/disable the dropdown
+            checkbox.bind(active=lambda instance, value, h=header: self.toggle_dropdown(h, value))
+            
             mapping_layout.add_widget(row)
- 
- 
+
         scrollview.add_widget(mapping_layout)
         layout.add_widget(scrollview)
- 
- 
+
         save_button = Button(text="Save Mapping and Process")
         save_button.bind(on_press=self.save_mapping)
         layout.add_widget(save_button)
- 
- 
+
         return layout
+
  
+    def toggle_dropdown(self, header, is_active):
+        """Enable or disable the dropdown for a specific header based on checkbox state."""
+        self.field_map_dropdowns[header].disabled = not is_active
+
  
     def save_mapping(self, instance):
         """Save mappings and process the CSV."""

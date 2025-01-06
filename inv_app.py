@@ -49,11 +49,11 @@ class MappingApp(App):
         layout.add_widget(self.url_input)
 
         # Heading for Email
-        layout.add_widget(Label(text="Email", font_size=40, color=(1, 1, 1, 1)))  # White color
+        layout.add_widget(Label(text="Username", font_size=40, color=(1, 1, 1, 1)))  # White color
         
         # Text input for Email
-        self.email_input = TextInput(hint_text="Enter Email", multiline=False, size_hint_y=None, height=100, font_size=32)
-        layout.add_widget(self.email_input)
+        self.username_input = TextInput(hint_text="Enter Username", multiline=False, size_hint_y=None, height=100, font_size=32)
+        layout.add_widget(self.username_input)
 
         # Heading for Password
         layout.add_widget(Label(text="Password", font_size=40, color=(1, 1, 1, 1)))  # White color
@@ -70,69 +70,74 @@ class MappingApp(App):
         return layout
 
     def authenticate(self, instance):
-        email = self.email_input.text
-        password = self.password_input.text
+        username = self.username_input.text.strip()  # Correctly extract the username
+        password = self.password_input.text.strip()  # Extract the password
         self.api_url = self.url_input.text.strip()
 
-        if email == "fake@name.com" and password == "helloworld" and self.api_url:
-            self.root.clear_widgets()
-            self.root.add_widget(self.upload_screen())
-        else:
-            self.show_popup("Error", "Invalid login credentials or missing API URL!")
+        if not self.api_url.startswith("http"):
+            self.show_popup("Error", "Invalid API URL. Please include 'http://' or 'https://'.")
+            return
+
+        # Payload for Centric 8 login
+        payload = {
+            "username": username,
+            "password": password,
+        }
+
+        try:
+            # Correct Centric 8 login endpoint
+            response = requests.post(f"{self.api_url}/WebAccess/login.html", data=payload)
+            if response.status_code == 200:
+                self.session_token = response.cookies  # Store session cookies
+                self.show_popup("Success", "Login successful!")
+                self.root.clear_widgets()
+                self.root.add_widget(self.upload_screen())  # Move to the next screen
+            else:
+                # Handle API error response and show the actual message
+                error_message = response.text if response.text else "Login failed. Please check your credentials."
+                self.show_popup("Error", error_message)
+        except Exception as e:
+            self.show_popup("Error", f"Failed to connect to API: {e}")
+
+
 
     def upload_screen(self):
-        """Upload screen layout."""
         layout = BoxLayout(orientation='vertical', padding=50, spacing=50)
 
         # Title label
-        title = Label(text="Upload CSV File", font_size=36, color=(0, 0, 0, 1))
+        title = Label(text="Dynamic Endpoint Interaction", font_size=36, color=(0, 0, 0, 1))
         layout.add_widget(title)
 
-        # File chooser
-        self.file_chooser = FileChooserListView(filters=["*.csv"], size_hint_y=None, height=600)
-        layout.add_widget(self.file_chooser)
+        # Input for endpoint
+        self.endpoint_input = TextInput(hint_text="Enter API endpoint (e.g., /avatars)", multiline=False, size_hint_y=None, height=100, font_size=32)
+        layout.add_widget(self.endpoint_input)
 
-        # Upload button
-        upload_button = Button(text="Upload and Map", size_hint_y=None, height=80, background_normal='', background_color=(0, 0.5, 1, 1), font_size=28)
-        upload_button.bind(on_press=self.upload_file)
-        layout.add_widget(upload_button)
+        # Fetch button
+        fetch_button = Button(text="Fetch Data", size_hint_y=None, height=80, background_normal='', background_color=(0, 0.5, 1, 1), font_size=28)
+        fetch_button.bind(on_press=lambda x: self.fetch_endpoint_data(self.endpoint_input.text.strip()))
+        layout.add_widget(fetch_button)
 
-        # Logout button
+        # Back to login
         logout_button = Button(text="Logout", size_hint_y=None, height=80, background_normal='', background_color=(0.9, 0.1, 0.1, 1), font_size=28)
         logout_button.bind(on_press=lambda x: self.reset_to_login())
         layout.add_widget(logout_button)
 
         return layout
 
+
     def upload_file(self, instance):
-        """Upload CSV file and start mapping."""
+        """Upload CSV file and send it to the API."""
         selected_file = self.file_chooser.selection
 
         if not selected_file:
             self.show_popup("Error", "Please select a CSV file to upload!")
             return
 
+        file_path = selected_file[0]  # Get the file path
         try:
-            with open(selected_file[0], "r") as file:
-                # Use csv.Sniffer to detect the delimiter
-                sample = file.read(1024)
-                file.seek(0)  # Reset file pointer to the beginning
-                sniffer = csv.Sniffer()
-                delimiter = sniffer.sniff(sample).delimiter
-
-                # Use the detected delimiter to read the CSV
-                reader = csv.reader(file, delimiter=delimiter)
-                self.csv_headers = next(reader)  # Extract headers (first row)
-                
-                # Check if headers exist, if not show error
-                if not self.csv_headers:
-                    self.show_popup("Error", "The CSV file has no headers.")
-                    return
-                
-                self.root.clear_widgets()
-                self.root.add_widget(self.mapping_screen())  # Now dynamically create the spinners based on headers
+            self.send_to_api(file_path)  # Pass the file path to the API
         except Exception as e:
-            self.show_popup("Error", f"Failed to read file: \n{e}")
+            self.show_popup("Error", f"Failed to upload file: \n{e}")
 
     def mapping_screen(self):
         """Mapping screen with checkboxes and generic field names."""
@@ -216,14 +221,19 @@ class MappingApp(App):
         except Exception as e:
             self.show_popup("Error", f"Failed to process CSV: \n{e}")
 
-    def send_to_api(self, data):
-        """Send mapped row to the REST API."""
+    def send_to_api(self, file_path):
+        """Send file to the REST API."""
         try:
-            response = requests.post(f"{self.api_url}/upload", json=data)
-            if response.status_code != 200:
-                raise Exception(response.text)
+            with open(file_path, 'rb') as f:
+                files = {'file': f}
+                response = requests.post(f"{self.api_url}/upload", files=files)
+                if response.status_code == 200:
+                    self.show_popup("Success", f"File uploaded: {response.json().get('file_path')}")
+                else:
+                    raise Exception(response.text)
         except Exception as e:
-            self.show_popup("Error", f"Failed to send data: \n{e}")
+            self.show_popup("Error", f"Failed to upload file: \n{e}")
+
 
     def reset_to_login(self):
         """Reset the app to the login screen."""
@@ -234,6 +244,21 @@ class MappingApp(App):
         """Display a popup message."""
         popup = Popup(title=title, content=Label(text=message), size_hint=(0.6, 0.4))
         popup.open()
+
+    def fetch_endpoint_data(self, endpoint):
+        """
+        Fetch data from a dynamically provided endpoint.
+        """
+        full_url = f"{self.api_url}{endpoint}"  # Construct full URL
+        try:
+            response = requests.get(full_url, cookies=self.session_token)
+            if response.status_code == 200:
+                data = response.json()
+                self.show_popup("Success", f"Data fetched successfully: {data}")
+            else:
+                self.show_popup("Error", f"Failed to fetch data: {response.text}")
+        except Exception as e:
+            self.show_popup("Error", f"Error fetching data: {e}")
 
 if __name__ == "__main__":
     MappingApp().run()

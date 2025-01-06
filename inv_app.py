@@ -105,7 +105,7 @@ class MappingApp(App):
         layout = BoxLayout(orientation='vertical', padding=50, spacing=50)
 
         # Title label
-        title = Label(text="Dynamic Endpoint Interaction", font_size=36, color=(0, 0, 0, 1))
+        title = Label(text="Dynamic Endpoint Interaction", font_size=36, color=(1, 1, 1, 1))
         layout.add_widget(title)
 
         # Input for endpoint

@@ -102,22 +102,23 @@ class MappingApp(App):
 
 
     def upload_screen(self):
+        """Upload screen layout."""
         layout = BoxLayout(orientation='vertical', padding=50, spacing=50)
 
         # Title label
-        title = Label(text="Dynamic Endpoint Interaction", font_size=36, color=(1, 1, 1, 1))
+        title = Label(text="Upload CSV File", font_size=36, color=(0, 0, 0, 1))
         layout.add_widget(title)
 
-        # Input for endpoint
-        self.endpoint_input = TextInput(hint_text="Enter API endpoint (e.g., /avatars)", multiline=False, size_hint_y=None, height=100, font_size=32)
-        layout.add_widget(self.endpoint_input)
+        # File chooser
+        self.file_chooser = FileChooserListView(filters=["*.csv"], size_hint_y=None, height=600)
+        layout.add_widget(self.file_chooser)
 
-        # Fetch button
-        fetch_button = Button(text="Fetch Data", size_hint_y=None, height=80, background_normal='', background_color=(0, 0.5, 1, 1), font_size=28)
-        fetch_button.bind(on_press=lambda x: self.fetch_endpoint_data(self.endpoint_input.text.strip()))
-        layout.add_widget(fetch_button)
+        # Upload button
+        upload_button = Button(text="Upload and Map", size_hint_y=None, height=80, background_normal='', background_color=(0, 0.5, 1, 1), font_size=28)
+        upload_button.bind(on_press=self.upload_file)
+        layout.add_widget(upload_button)
 
-        # Back to login
+        # Logout button
         logout_button = Button(text="Logout", size_hint_y=None, height=80, background_normal='', background_color=(0.9, 0.1, 0.1, 1), font_size=28)
         logout_button.bind(on_press=lambda x: self.reset_to_login())
         layout.add_widget(logout_button)
@@ -126,18 +127,34 @@ class MappingApp(App):
 
 
     def upload_file(self, instance):
-        """Upload CSV file and send it to the API."""
+        """Upload CSV file and start mapping."""
         selected_file = self.file_chooser.selection
 
         if not selected_file:
             self.show_popup("Error", "Please select a CSV file to upload!")
             return
 
-        file_path = selected_file[0]  # Get the file path
         try:
-            self.send_to_api(file_path)  # Pass the file path to the API
+            with open(selected_file[0], "r") as file:
+                # Use csv.Sniffer to detect the delimiter
+                sample = file.read(1024)
+                file.seek(0)  # Reset file pointer to the beginning
+                sniffer = csv.Sniffer()
+                delimiter = sniffer.sniff(sample).delimiter
+
+                # Use the detected delimiter to read the CSV
+                reader = csv.reader(file, delimiter=delimiter)
+                self.csv_headers = next(reader)  # Extract headers (first row)
+
+                # Check if headers exist, if not show error
+                if not self.csv_headers:
+                    self.show_popup("Error", "The CSV file has no headers.")
+                    return
+
+                self.root.clear_widgets()
+                self.root.add_widget(self.mapping_screen())  # Now dynamically create the spinners based on headers
         except Exception as e:
-            self.show_popup("Error", f"Failed to upload file: \n{e}")
+            self.show_popup("Error", f"Failed to read file: \n{e}")
 
     def mapping_screen(self):
         """Mapping screen with checkboxes and generic field names."""

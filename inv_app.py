@@ -41,12 +41,7 @@ class MappingApp(App):
         """Login screen layout."""
         layout = BoxLayout(orientation='vertical', padding=60, spacing=60)
         
-        # Heading for API Environment URL
-        layout.add_widget(Label(text="API Environment URL", font_size=40, color=(1, 1, 1, 1)))  # White color
-        
-        # Text input for API URL
-        self.url_input = TextInput(hint_text="Enter API URL", multiline=False, size_hint_y=None, height=100, font_size=32)
-        layout.add_widget(self.url_input)
+    
 
         # Heading for Email
         layout.add_widget(Label(text="Username", font_size=40, color=(1, 1, 1, 1)))  # White color
@@ -70,34 +65,46 @@ class MappingApp(App):
         return layout
 
     def authenticate(self, instance):
-        username = self.username_input.text.strip()  # Correctly extract the username
-        password = self.password_input.text.strip()  # Extract the password
-        self.api_url = self.url_input.text.strip()
+        """
+        Authenticate the user using the fixed base URL.
+        """
+        username = self.username_input.text.strip()
+        password = self.password_input.text.strip()
+        base_url = "http://41.72.150.250"  # Fixed base URL
 
-        if not self.api_url.startswith("http"):
-            self.show_popup("Error", "Invalid API URL. Please include 'http://' or 'https://'.")
-            return
-
-        # Payload for Centric 8 login
+        # Payload for login
         payload = {
             "username": username,
             "password": password,
         }
 
         try:
-            # Correct Centric 8 login endpoint
-            response = requests.post(f"{self.api_url}/WebAccess/login.html", data=payload)
+            # Send POST request to login
+            response = requests.post(f"{base_url}", json=payload)
             if response.status_code == 200:
                 self.session_token = response.cookies  # Store session cookies
                 self.show_popup("Success", "Login successful!")
                 self.root.clear_widgets()
-                self.root.add_widget(self.upload_screen())  # Move to the next screen
+                self.root.add_widget(self.upload_screen())  # Move to the upload screen
             else:
-                # Handle API error response and show the actual message
-                error_message = response.text if response.text else "Login failed. Please check your credentials."
-                self.show_popup("Error", error_message)
+                self.show_popup("Error", f"Login failed: {response.text}")
         except Exception as e:
             self.show_popup("Error", f"Failed to connect to API: {e}")
+
+            try:
+                # Correct Centric 8 login endpoint
+                response = requests.post(f"{self.api_url}csi-requesthandler/RequestHandler", data=payload)
+                if response.status_code == 200:
+                    self.session_token = response.cookies  # Store session cookies
+                    self.show_popup("Success", "Login successful!")
+                    self.root.clear_widgets()
+                    self.root.add_widget(self.upload_screen())  # Move to the next screen
+                else:
+                    # Handle API error response and show the actual message
+                    error_message = response.text if response.text else "Login failed. Please check your credentials."
+                    self.show_popup("Error", error_message)
+            except Exception as e:
+                self.show_popup("Error", f"Failed to connect to API: {e}")
 
 
 
@@ -225,6 +232,10 @@ class MappingApp(App):
 
         # Process CSV with the valid mapping
         self.process_csv(mapping_result)
+        self.saved_mappings = mapping_result
+        self.show_popup("Success", "Mappings saved successfully!")
+      
+        self.process_csv_rows()
 
     def process_csv(self, mapping_result):
         """Apply mappings to CSV rows and send them to the API."""

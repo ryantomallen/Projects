@@ -12,6 +12,7 @@ from kivy.uix.checkbox import CheckBox
 from kivy.graphics import Color, Rectangle
 import csv
 import requests
+import json
 
 class MappingApp(App):
     def customize_checkbox(self, checkbox):
@@ -70,7 +71,9 @@ class MappingApp(App):
         """
         username = self.username_input.text.strip()
         password = self.password_input.text.strip()
-        base_url = "http://41.72.150.250"  # Fixed base URL
+        base_url = 'http://41.72.150.250/csi-requesthandler/api/v2/'  # Fixed base URL
+        endpoint = 'session'
+        method = 'POST'
 
         # Payload for login
         payload = {
@@ -80,7 +83,10 @@ class MappingApp(App):
 
         try:
             # Send POST request to login
-            response = requests.post(f"{base_url}", json=payload)
+            response = requests.request(method, base_url + endpoint,
+                            headers={'accept': 'application/json', 'Content-Type': 'application/json'},
+                            data=json.dumps({"username": username, "password": password}))
+            token = response.json()['token']
             if response.status_code == 200:
                 self.session_token = response.cookies  # Store session cookies
                 self.show_popup("Success", "Login successful!")
@@ -223,6 +229,8 @@ class MappingApp(App):
         self.field_map_dropdowns[header].disabled = not is_active
 
     def save_mapping(self, instance):
+        print("weird")
+        self.show_popup("this opens", "yay")
         """Save mappings and process the CSV."""
         mapping_result = {header: spinner.text for header, spinner in self.field_map_dropdowns.items() if spinner.text != "Skip"}
 
@@ -235,10 +243,11 @@ class MappingApp(App):
         self.saved_mappings = mapping_result
         self.show_popup("Success", "Mappings saved successfully!")
       
-        self.process_csv_rows()
+        #self.process_csv() 
 
     def process_csv(self, mapping_result):
         """Apply mappings to CSV rows and send them to the API."""
+        
         try:
             with open(self.file_chooser.selection[0], "r") as file:
                 reader = csv.DictReader(file)
@@ -254,7 +263,10 @@ class MappingApp(App):
         try:
             with open(file_path, 'rb') as f:
                 files = {'file': f}
-                response = requests.post(f"{self.api_url}/upload", files=files)
+                self.endpoint = "avatars"
+                response = requests.request(self.method, self.base_url + self.endpoint,
+                            headers={'accept': 'application/json', 'Cookie': self.token, 'class_name': 'MerchOptionVersion'})
+
                 if response.status_code == 200:
                     self.show_popup("Success", f"File uploaded: {response.json().get('file_path')}")
                 else:

@@ -229,8 +229,6 @@ class MappingApp(App):
         self.field_map_dropdowns[header].disabled = not is_active
 
     def save_mapping(self, instance):
-        print("weird")
-        self.show_popup("this opens", "yay")
         """Save mappings and process the CSV."""
         mapping_result = {header: spinner.text for header, spinner in self.field_map_dropdowns.items() if spinner.text != "Skip"}
 
@@ -270,6 +268,7 @@ class MappingApp(App):
                 if response.status_code == 200:
                     self.show_popup("Success", f"File uploaded: {response.json().get('file_path')}")
                 else:
+                    print("this")
                     raise Exception(response.text)
         except Exception as e:
             self.show_popup("Error", f"Failed to upload file: \n{e}")

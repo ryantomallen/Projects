@@ -19,19 +19,23 @@ class MappingApp(App):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.base_url = "http://41.72.150.250/csi-requesthandler/api/v2/"
-        self.endpoint = "avatars"
+        self.endpoint = None
+        self.field_mappings = {}  # To store user-defined field mappings
+        self.csv_headers = []  # To store CSV headers
+        self.session_token = None
+
     def customize_checkbox(self, checkbox):
-        """Apply custom styling to a CheckBox."""
-        # Define the background appearance
+        
+        # Define background appearance
         with checkbox.canvas.before:
             Color(0.8, 0.8, 0.8, 1)  # Light gray for unchecked state
             Rectangle(size=checkbox.size, pos=checkbox.pos)
 
-        # Ensure the background updates dynamically when the widget resizes or moves
+        # Ensure background updates dynamically when the widget resizes or moves
         checkbox.bind(size=self.update_checkbox_background, pos=self.update_checkbox_background)
 
     def update_checkbox_background(self, checkbox, *args):
-        """Update the background rectangle when the CheckBox is resized or moved."""
+        
         checkbox.canvas.before.clear()
         with checkbox.canvas.before:
             Color(0.8, 0.8, 0.8, 1)  # Light gray for unchecked state
@@ -44,7 +48,7 @@ class MappingApp(App):
         return self.login_screen()
 
     def login_screen(self):
-        """Login screen layout."""
+       
         layout = BoxLayout(orientation='vertical', padding=60, spacing=60)
         
     
@@ -71,9 +75,7 @@ class MappingApp(App):
         return layout
 
     def authenticate(self, instance):
-        """
-        Authenticate the user using the fixed base URL.
-        """
+       
         username = self.username_input.text.strip()
         password = self.password_input.text.strip()
         base_url = 'http://41.72.150.250/csi-requesthandler/api/v2/'
@@ -117,7 +119,7 @@ class MappingApp(App):
         self.base_url = "http://41.72.150.250/csi-requesthandler/api/v2/"
 
     def upload_screen(self):
-        """Upload screen layout."""
+        
         layout = BoxLayout(orientation='vertical', padding=50, spacing=50)
 
         # Title label
@@ -142,11 +144,8 @@ class MappingApp(App):
 
 
     def upload_csv(self, instance):
-        """
-        Handle the upload button press and process the selected file from the FileChooser.
-        """
+    
         try:
-            # Ensure a file is selected
             if not self.file_chooser.selection:
                 raise ValueError("No file selected. Please select a CSV file.")
 
@@ -156,14 +155,16 @@ class MappingApp(App):
             # Open and process the CSV file
             with open(file_path, 'r') as csv_file:
                 reader = csv.DictReader(csv_file)
-                self.csv_headers = reader.fieldnames
+                self.csv_headers = reader.fieldnames  # Extract headers
                 self.show_popup("Success", "File uploaded successfully!")
-                self.show_mapping_screen()
+                self.root.clear_widgets()
+                self.root.add_widget(self.endpoint_input_screen())  # Transition to endpoint input screen
         except Exception as e:
             self.show_popup("Error", f"Failed to process CSV file: {e}")
 
+
     def show_mapping_screen(self):
-        
+   
         layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
 
         layout.add_widget(Label(text="Map CSV Headers to API Fields", font_size=24))
@@ -175,7 +176,7 @@ class MappingApp(App):
             
             dropdown = Spinner(
                 text="Select API Field",
-                values=["node_name", "description", "default_3d_viewable", "images", "referenced_documents", "size_ranges"],
+                values=self.api_fields,  # Dynamically fetched API fields
                 size_hint_x=0.7
             )
             self.field_map_dropdowns[header] = dropdown
@@ -189,28 +190,10 @@ class MappingApp(App):
         self.root.clear_widgets()
         self.root.add_widget(layout)
 
-
-    def toggle_dropdown(self, header, is_active):
-        """Enable or disable the dropdown for a specific header based on checkbox state."""
-        self.field_map_dropdowns[header].disabled = not is_active
+    
 
     def save_mapping(self, instance):
-        """
-        Save the user-defined field mappings.
-        """
-        self.field_mappings = {header: dropdown.text for header, dropdown in self.field_map_dropdowns.items() if dropdown.text != "Select API Field"}
-        
-        if not self.field_mappings:
-            self.show_popup("Error", "No fields mapped. Please map at least one field.")
-            return
-        
-        self.show_popup("Success", "Mappings saved successfully!")
-        self.process_csv_rows()
-
-    def save_mapping(self, instance):
-        """
-        Save mappings and process the CSV.
-        """
+    
         self.field_mappings = {
             header: dropdown.text for header, dropdown in self.field_map_dropdowns.items() if dropdown.text != "Select API Field"
         }
@@ -220,66 +203,122 @@ class MappingApp(App):
             return
 
         self.show_popup("Success", "Mappings saved successfully!")
-        self.process_csv_rows()
+        self.process_csv_rows_with_endpoint()  # Proceed to upload data
 
       
         #self.process_csv() 
 
-    def process_csv_rows(self):
-    
+    def process_csv_rows_with_endpoint(self):
+        
         try:
             selected_file = self.file_chooser.selection[0]
             with open(selected_file, 'r') as csv_file:
                 reader = csv.DictReader(csv_file)
                 for row in reader:
-                    # Dynamically construct payload, handling missing fields
+                    # Validate and convert data based on deduced field types
+                    for field, value in row.items():
+                        if field in self.field_mappings.values():  # Check if the field is mapped
+                            expected_type = self.api_fields.get(field, "string")
+                            if expected_type == "float" or expected_type == "int":
+                                if self.is_number(value):
+                                    row[field] = float(value) if expected_type == "float" else int(value)
+                                else:
+                                    raise ValueError(f"Invalid number for field '{field}': {value}")
+                            elif expected_type == "NoneType" and not value:
+                                row[field] = None
+
+                    # Construct payload dynamically
                     payload = {
                         api_field: row[csv_header]
                         for csv_header, api_field in self.field_mappings.items()
                         if csv_header in row
                     }
-                    print("Constructed Payload:", payload)  # Debug the payload
                     self.send_to_api(payload)
             self.show_popup("Success", "All rows processed and sent successfully!")
         except Exception as e:
             self.show_popup("Error", f"Failed to process CSV rows: {e}")
+
+    def is_number(self, value):
+        
+        try:
+            float(value)
+            return True
+        except ValueError:
+            return False
     
     
     def send_to_api(self, payload):
-        """
-        Send the constructed payload to the API.
-        """
+    
         headers = {
             "accept": "application/json",
             "Content-Type": "application/json",
-            "Cookie": self.session_token  # Assuming token is set during login
+            "Cookie": self.session_token
         }
         try:
-            response = requests.post(self.base_url + "avatars", json=payload, headers=headers)
+            # Remove any trailing slash from base_url and leading slash from endpoint
+            full_url = f"{self.base_url.rstrip('/')}/{self.endpoint.lstrip('/')}"
+            response = requests.post(full_url, json=payload, headers=headers)
             if response.status_code == 200:
                 print("Data sent successfully:", response.json())
+                self.show_popup("Success", f"Data sent: {response.json()}")
             else:
-                print("API error:", response.status_code, response.text)
-                raise Exception(f"API error: {response.text}")
+                error_details = response.json().get("message", response.text)
+                print("API error:", response.status_code, error_details)
+                self.show_popup("Error", f"API error: {response.status_code} - {error_details}")
         except Exception as e:
             print("Error sending data:", e)
             self.show_popup("Error", f"Failed to send data: {e}")
 
+    def endpoint_input_screen(self):
+    
+        layout = BoxLayout(orientation='vertical', padding=50, spacing=50)
+
+        # Input for the endpoint
+        layout.add_widget(Label(text="Enter the REST API Endpoint", font_size=28))
+        self.endpoint_input = TextInput(
+            hint_text="Enter endpoint (e.g. avatars)",
+            multiline=False,
+            font_size=24
+        )
+        layout.add_widget(self.endpoint_input)
+
+        # Submit button
+        submit_button = Button(
+            text="Fetch API Fields",
+            size_hint_y=None,
+            height=80,
+            background_normal='',
+            background_color=(0, 0.5, 1, 1),
+            font_size=24
+        )
+        submit_button.bind(on_press=self.fetch_api_fields)
+        layout.add_widget(submit_button)
+
+        return layout
+    
+    def set_endpoint_and_process_data(self, instance):
+    
+        endpoint = self.endpoint_input.text.strip()
+        if not endpoint:
+            self.show_popup("Error", "Please enter a valid endpoint.")
+            return
+
+    # Normalize the endpoint to avoid duplicate slashes
+        self.endpoint = endpoint.lstrip("/")  # Remove leading slash
+        self.process_csv_rows_with_endpoint()
 
     def reset_to_login(self):
-        """Reset the app to the login screen."""
+        
         self.root.clear_widgets()
         self.root.add_widget(self.login_screen())
 
     def show_popup(self, title, message):
-        """Display a popup message."""
+        
         popup = Popup(title=title, content=Label(text=message), size_hint=(0.6, 0.4))
         popup.open()
 
     def fetch_endpoint_data(self, endpoint):
-        """
-        Fetch data from a dynamically provided endpoint.
-        """
+        
         full_url = f"{self.api_url}{endpoint}"  # Construct full URL
         try:
             response = requests.get(full_url, cookies=self.session_token)
@@ -290,6 +329,39 @@ class MappingApp(App):
                 self.show_popup("Error", f"Failed to fetch data: {response.text}")
         except Exception as e:
             self.show_popup("Error", f"Error fetching data: {e}")
+
+    def fetch_api_fields(self, instance):
+        
+        endpoint = self.endpoint_input.text.strip()
+        if not endpoint:
+            self.show_popup("Error", "Please enter a valid endpoint.")
+            return
+
+        if not endpoint.startswith("/"):
+            endpoint = "/" + endpoint
+        self.endpoint = endpoint
+
+        try:
+            # Fetch existing avatars to deduce fields
+            full_url = f"{self.base_url.rstrip('/')}/{self.endpoint.lstrip('/')}"
+            headers = {"accept": "application/json", "Cookie": self.session_token}
+            response = requests.get(full_url, headers=headers)
+
+            if response.status_code == 200:
+                data = response.json()
+                if isinstance(data, list) and len(data) > 0:
+                    # Deduce fields and types from the first record
+                    self.api_fields = {key: type(value).__name__ for key, value in data[0].items()}
+                    self.show_popup("Success", "API fields and types fetched successfully!")
+                    self.root.clear_widgets()
+                    self.root.add_widget(self.show_mapping_screen())
+                else:
+                    self.show_popup("Error", "No data found at the endpoint to deduce fields.")
+            else:
+                self.show_popup("Error", f"Failed to fetch data: {response.status_code} - {response.text}")
+        except Exception as e:
+            self.show_popup("Error", f"Failed to connect to API: {e}")
+
 
 if __name__ == "__main__":
     MappingApp().run()

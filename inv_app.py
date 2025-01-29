@@ -10,6 +10,7 @@ from kivy.uix.scrollview import ScrollView
 from kivy.uix.popup import Popup
 from kivy.uix.checkbox import CheckBox
 from kivy.graphics import Color, Rectangle
+from kivy.clock import Clock
 import csv
 import requests
 import json
@@ -23,6 +24,7 @@ class MappingApp(App):
         self.field_mappings = {}  # To store user-defined field mappings
         self.csv_headers = []  # To store CSV headers
         self.session_token = None
+        self.endpoint_input = None
 
     def customize_checkbox(self, checkbox):
         
@@ -114,7 +116,7 @@ class MappingApp(App):
                 self.show_popup("Error", f"Login failed: {response.text}")
         except requests.exceptions.RequestException as e:
             # Handle connection errors
-            self.show_popup("Error", f"Failed to connect to API: {e}")
+            self.show_popup("Error", f"Failed to connect to API auth: {e}")
 
         self.base_url = "http://41.72.150.250/csi-requesthandler/api/v2/"
 
@@ -183,8 +185,17 @@ class MappingApp(App):
             hbox.add_widget(dropdown)
             layout.add_widget(hbox)
 
+        # Add Key Identifier Selection Dropdown
+        layout.add_widget(Label(text="Select Key Identifier (Unique Record ID)", font_size=20))
+        self.key_identifier_spinner = Spinner(
+            text="Select Key Column",
+            values=self.csv_headers,  # Use CSV headers as selectable keys
+            size_hint_x=1.0
+        )
+        layout.add_widget(self.key_identifier_spinner)
+
         save_button = Button(text="Save Mapping", size_hint_y=None, height=50)
-        save_button.bind(on_press=self.save_mapping)
+        save_button.bind(on_press=self.validate_and_save_mapping)
         layout.add_widget(save_button)
 
         self.root.clear_widgets()
@@ -192,8 +203,12 @@ class MappingApp(App):
 
     
 
-    def save_mapping(self, instance):
     
+
+      
+        #self.process_csv() 
+    def validate_and_save_mapping(self, instance):
+        
         self.field_mappings = {
             header: dropdown.text for header, dropdown in self.field_map_dropdowns.items() if dropdown.text != "Select API Field"
         }
@@ -202,41 +217,84 @@ class MappingApp(App):
             self.show_popup("Error", "No fields mapped! Please map at least one field.")
             return
 
-        self.show_popup("Success", "Mappings saved successfully!")
-        self.process_csv_rows_with_endpoint()  # Proceed to upload data
+        self.key_identifier = self.key_identifier_spinner.text
+        if self.key_identifier == "Select Key Column":
+            self.show_popup("Error", "Please select a key identifier column!")
+            return
 
-      
-        #self.process_csv() 
+        try:
+            selected_file = self.file_chooser.selection[0]
+            with open(selected_file, 'r') as csv_file:
+                reader = csv.DictReader(csv_file)
+                key_values = []
+                duplicate_keys = set()
 
-    def process_csv_rows_with_endpoint(self):
+                for row in reader:
+                    key_value = row.get(self.key_identifier)
+                    if key_value in key_values:
+                        duplicate_keys.add(key_value)
+                    key_values.append(key_value)
+
+            if duplicate_keys:
+                self.show_popup("Warning", f"Duplicate values detected in the key identifier column. "
+                                        f"These records will be skipped: {', '.join(duplicate_keys)}")
+
+        except Exception as e:
+            self.show_popup("Error", f"Failed to validate key identifier column: {e}")
+            return
+
+        self.show_popup("Success", "Mappings and key identifier saved successfully!")
+        self.process_csv_rows_with_endpoint(duplicate_keys)  # Pass duplicate keys for skipping
+
+
+    def process_csv_rows_with_endpoint(self, duplicate_keys=set()):
         
         try:
             selected_file = self.file_chooser.selection[0]
             with open(selected_file, 'r') as csv_file:
                 reader = csv.DictReader(csv_file)
-                for row in reader:
-                    # Validate and convert data based on deduced field types
-                    for field, value in row.items():
-                        if field in self.field_mappings.values():  # Check if the field is mapped
-                            expected_type = self.api_fields.get(field, "string")
-                            if expected_type == "float" or expected_type == "int":
-                                if self.is_number(value):
-                                    row[field] = float(value) if expected_type == "float" else int(value)
-                                else:
-                                    raise ValueError(f"Invalid number for field '{field}': {value}")
-                            elif expected_type == "NoneType" and not value:
-                                row[field] = None
+                skipped_rows = []
 
-                    # Construct payload dynamically
-                    payload = {
-                        api_field: row[csv_header]
-                        for csv_header, api_field in self.field_mappings.items()
-                        if csv_header in row
-                    }
-                    self.send_to_api(payload)
-            self.show_popup("Success", "All rows processed and sent successfully!")
+                for row in reader:
+                    key_value = row.get(self.key_identifier)
+                    if not key_value:
+                        skipped_rows.append(f"Missing key identifier in row: {row}")
+                        continue  # Skip records with missing keys
+
+                    if key_value in duplicate_keys:
+                        skipped_rows.append(f"Duplicate key {key_value} in row: {row}")
+                        continue  # Skip duplicate keys
+
+                    payload = {}
+                    for csv_header, api_field in self.field_mappings.items():
+                        if csv_header in row:
+                            value = row[csv_header]
+                            expected_type = self.api_fields.get(api_field, "string")
+
+                            if expected_type in ["float", "int"]:
+                                if self.is_number(value):
+                                    payload[api_field] = float(value) if expected_type == "float" else int(value)
+                                else:
+                                    raise ValueError(f"Invalid number for field '{api_field}': {value}")
+                            elif expected_type == "NoneType" and not value:
+                                payload[api_field] = None
+                            else:
+                                payload[api_field] = value  
+
+                    exists = self.check_if_record_exists(key_value)
+                    if exists:
+                        self.update_existing_record(payload, key_value)
+                    else:
+                        self.send_to_api(payload)
+
+            if skipped_rows:
+                self.show_popup("Warning", f"The following records were skipped:\n{chr(10).join(skipped_rows)}")
+
         except Exception as e:
             self.show_popup("Error", f"Failed to process CSV rows: {e}")
+
+
+
 
     def is_number(self, value):
         
@@ -270,12 +328,12 @@ class MappingApp(App):
             self.show_popup("Error", f"Failed to send data: {e}")
 
     def endpoint_input_screen(self):
-    
+        
         layout = BoxLayout(orientation='vertical', padding=50, spacing=50)
 
         # Input for the endpoint
         layout.add_widget(Label(text="Enter the REST API Endpoint", font_size=28))
-        self.endpoint_input = TextInput(
+        self.endpoint_input = TextInput(  # Properly define the widget
             hint_text="Enter endpoint (e.g. avatars)",
             multiline=False,
             font_size=24
@@ -291,21 +349,53 @@ class MappingApp(App):
             background_color=(0, 0.5, 1, 1),
             font_size=24
         )
-        submit_button.bind(on_press=self.fetch_api_fields)
+
+        submit_button.unbind(on_press=self.fetch_api_fields) 
+        submit_button.bind(on_press=lambda instance: Clock.schedule_once(self.fetch_api_fields, 0.2))
         layout.add_widget(submit_button)
 
         return layout
     
     def set_endpoint_and_process_data(self, instance):
-    
+        
+        if not hasattr(self, 'endpoint_input') or self.endpoint_input is None:
+            self.show_popup("Error", "Internal Error: 'endpoint_input' is not initialized!")
+            return
+
         endpoint = self.endpoint_input.text.strip()
         if not endpoint:
             self.show_popup("Error", "Please enter a valid endpoint.")
             return
 
-    # Normalize the endpoint to avoid duplicate slashes
-        self.endpoint = endpoint.lstrip("/")  # Remove leading slash
-        self.process_csv_rows_with_endpoint()
+        self.endpoint = endpoint.lstrip("/")  # Normalize endpoint
+        Clock.schedule_once(self.validate_api_endpoint, 1)
+
+    def validate_api_endpoint(self, dt):
+        
+        try:
+            # Construct the full URL from base URL and endpoint
+            full_url = f"{self.base_url.rstrip('/')}/{self.endpoint.lstrip('/')}"
+            
+            # Use headers and cookies for API authentication
+            headers = {"accept": "application/json"}
+            response = requests.get(full_url, headers=headers, cookies=self.session_token)
+
+            # Check API response
+            if response.status_code == 200:
+                self.show_popup("Success", "API endpoint validated successfully!")
+                Clock.schedule_once(self.delayed_show_mapping_screen, 0.5)  # Proceed to the next screen after delay
+            else:
+                self.show_popup("Error", f"API connection failed: {response.status_code} - {response.text}")
+
+        except Exception as e:
+            self.show_popup("Error", f"Failed to connect to API val end: {e}")
+
+
+    def delayed_show_mapping_screen(self, dt):
+        
+        self.root.clear_widgets()
+        self.root.add_widget(self.show_mapping_screen())
+
 
     def reset_to_login(self):
         
@@ -331,7 +421,12 @@ class MappingApp(App):
             self.show_popup("Error", f"Error fetching data: {e}")
 
     def fetch_api_fields(self, instance):
-        
+        if not hasattr(self, 'endpoint_input'):
+            print("Debug: endpoint_input attribute does not exist.")
+        elif self.endpoint_input is None:
+            print("Debug: endpoint_input is None.")
+        else:
+            print(f"Debug: endpoint_input value is '{self.endpoint_input.text.strip()}'")
         endpoint = self.endpoint_input.text.strip()
         if not endpoint:
             self.show_popup("Error", "Please enter a valid endpoint.")
@@ -359,9 +454,48 @@ class MappingApp(App):
                     self.show_popup("Error", "No data found at the endpoint to deduce fields.")
             else:
                 self.show_popup("Error", f"Failed to fetch data: {response.status_code} - {response.text}")
+        
+        except AttributeError as e:
+            if "fbind" in str(e):  # Check if error is related to fbind
+            
+                return
         except Exception as e:
             self.show_popup("Error", f"Failed to connect to API: {e}")
 
+
+    def check_if_record_exists(self, key_value):
+   
+        try:
+            url = f"{self.base_url.rstrip('/')}/{self.endpoint.lstrip('/')}?filter={self.key_identifier}={key_value}"
+            headers = {"accept": "application/json", "Cookie": self.session_token}
+            response = requests.get(url, headers=headers)
+
+            if response.status_code == 200:
+                data = response.json()
+                return len(data) > 0  # If the API returns a record, it exists
+            else:
+                return False
+        except Exception as e:
+            print(f"Error checking record existence: {e}")
+            return False
+
+    def update_existing_record(self, payload, key_value):
+      
+        try:
+            url = f"{self.base_url.rstrip('/')}/{self.endpoint.lstrip('/')}/{key_value}"
+            headers = {
+                "accept": "application/json",
+                "Content-Type": "application/json",
+                "Cookie": self.session_token
+            }
+            response = requests.put(url, json=payload, headers=headers)
+
+            if response.status_code == 200:
+                print(f"Record {key_value} updated successfully!")
+            else:
+                print(f"Failed to update record {key_value}: {response.text}")
+        except Exception as e:
+            print(f"Error updating record {key_value}: {e}")
 
 if __name__ == "__main__":
     MappingApp().run()

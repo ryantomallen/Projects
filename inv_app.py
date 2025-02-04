@@ -245,23 +245,20 @@ class MappingApp(App):
                 if isinstance(data, list) and len(data) > 0:
                     self.api_fields = {k: type(v).__name__ for k, v in data[0].items()}
                     self.show_popup("Success", "API fields and types fetched successfully!")
-
+                    
                     self.config_data["endpoint"] = self.endpoint
                     
+                    # Clear the current screen
                     self.root.clear_widgets()
-
-                   
-                    if self.key_column and self.field_mappings:
-                        # We can skip or confirm
-                        self.root.add_widget(self.upload_screen())  
-                    else:
-                        self.root.add_widget(self.show_key_and_mapping_screen())
+                    # Always show the mapping screen
+                    self.root.add_widget(self.show_key_and_mapping_screen())
                 else:
                     self.show_popup("Error", "No data found at the endpoint to deduce fields.")
             else:
                 self.show_popup("Error", f"Failed to fetch data: {resp.status_code} - {resp.text}")
         except requests.exceptions.RequestException as e:
             self.show_popup("Error", f"Error fetching endpoint: {e}")
+
 
     
     #KEY COLUMN/MAPPING SCREEN
